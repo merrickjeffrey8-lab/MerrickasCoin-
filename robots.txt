@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://resonant-tapioca-6171dc.netlify.app/sitemap.xml
