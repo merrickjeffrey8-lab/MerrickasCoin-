@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://merrickjeffrey8-lab.github.io/MerrickasCoin-/sitemap.xml
