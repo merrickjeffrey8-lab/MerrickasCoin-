@@ -102,6 +102,7 @@ export async function onRequestPost(context) {
     message: "Secure webhook connection verified."
   });
 }
+    if (!title && !content) {
       return json(
         {
           ok: false,
