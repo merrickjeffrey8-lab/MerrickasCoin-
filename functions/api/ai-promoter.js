@@ -6,7 +6,7 @@ function json(data, status = 200) {
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-headers":
-        "authorization, content-type, x-webhook-token",
+        "authorization, content-type, x-webhook-token, x-uap-event",
       "access-control-allow-methods": "GET, POST, OPTIONS"
     }
   });
@@ -16,7 +16,11 @@ function getToken(request) {
   const authorization =
     request.headers.get("authorization") || "";
 
-  if (authorization.toLowerCase().startsWith("bearer ")) {
+  if (
+    authorization
+      .toLowerCase()
+      .startsWith("bearer ")
+  ) {
     return authorization.slice(7).trim();
   }
 
@@ -25,26 +29,55 @@ function getToken(request) {
   ).trim();
 }
 
-export async function onRequestOptions() {
-  return json({
-    ok: true
-  });
+function safeText(value, maxLength = 100000) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().slice(0, maxLength);
 }
 
-export async function onRequestGet() {
-  return json({
-    ok: true,
-    connected: true,
-    service: "MerrickasCoin AI Promoter Connector",
-    message: "Secure AI Promoter endpoint is online."
-  });
-}
+export async function onRequest(context) {
+  const { request, env } = context;
 
-export async function onRequestPost(context) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers":
+          "authorization, content-type, x-webhook-token, x-uap-event",
+        "access-control-allow-methods":
+          "GET, POST, OPTIONS"
+      }
+    });
+  }
+
+  if (request.method === "GET") {
+    return json({
+      ok: true,
+      service:
+        "MerrickasCoin AI Promoter Connector",
+      status: "online"
+    });
+  }
+
+  if (request.method !== "POST") {
+    return json(
+      {
+        ok: false,
+        error: "Method not allowed."
+      },
+      405
+    );
+  }
+
   try {
-    const { request, env } = context;
+    const expectedToken = String(
+      env.AI_PROMOTER_WEBHOOK_TOKEN || ""
+    ).trim();
 
-    if (!env.AI_PROMOTER_WEBHOOK_TOKEN) {
+    if (!expectedToken) {
       return json(
         {
           ok: false,
@@ -55,11 +88,11 @@ export async function onRequestPost(context) {
       );
     }
 
-    const suppliedToken = getToken(request);
+    const receivedToken = getToken(request);
 
     if (
-      !suppliedToken ||
-      suppliedToken !== env.AI_PROMOTER_WEBHOOK_TOKEN
+      !receivedToken ||
+      receivedToken !== expectedToken
     ) {
       return json(
         {
@@ -70,49 +103,75 @@ export async function onRequestPost(context) {
       );
     }
 
-    let payload;
+    let payload = {};
 
     try {
       payload = await request.json();
     } catch {
-      return json(
-        {
-          ok: false,
-          error: "Request body must be valid JSON."
-        },
-        400
-      );
+      payload = {};
     }
 
-    const title =
-      typeof payload?.title === "string"
-        ? payload.title.trim()
-        : "";
+    const event = safeText(
+      payload.event ||
+        payload.type ||
+        payload.action ||
+        request.headers.get("x-uap-event"),
+      100
+    ).toLowerCase();
 
-    const content =
-      typeof payload?.content === "string"
-        ? payload.content.trim()
-        : "";
-    if (payload?.event === "connection_test") {
-  return json({
-    ok: true,
-    connected: true,
-    accepted: true,
-    service: "MerrickasCoin AI Promoter Connector",
-    message: "Secure webhook connection verified."
-  });
-}
+    /*
+     * Accept every normal connection-test format.
+     */
+    if (
+      event === "connection_test" ||
+      event === "test_connection" ||
+      event === "connection-test" ||
+      event === "ping"
+    ) {
+      return json({
+        ok: true,
+        connected: true,
+        accepted: true,
+        event: "connection_test",
+        service:
+          "MerrickasCoin AI Promoter Connector",
+        message:
+          "Secure webhook connection verified."
+      });
+    }
+
+    const title = safeText(
+      payload.title ||
+        payload.name ||
+        payload.subject,
+      500
+    );
+
+    const content = safeText(
+      payload.content ||
+        payload.body ||
+        payload.article ||
+        payload.description,
+      200000
+    );
+
     if (!title && !content) {
       return json(
         {
           ok: false,
           error:
-            "The request must include a title or content."
+            "The request must include a title or content.",
+          receivedEvent: event || null
         },
         400
       );
     }
 
+    /*
+     * The connector currently receives approved content
+     * safely. It does not automatically alter index.html.
+     * Publishing logic can be added separately after testing.
+     */
     return json({
       ok: true,
       accepted: true,
@@ -129,7 +188,7 @@ export async function onRequestPost(context) {
         error:
           error instanceof Error
             ? error.message
-            : "Unknown connector error."
+            : "Unexpected connector error."
       },
       500
     );
