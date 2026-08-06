@@ -24,12 +24,12 @@ function getToken(request) {
     return authorization.slice(7).trim();
   }
 
-  return (
+  return String(
     request.headers.get("x-webhook-token") || ""
   ).trim();
 }
 
-function safeText(value, maxLength = 100000) {
+function cleanText(value, maxLength = 100000) {
   if (typeof value !== "string") {
     return "";
   }
@@ -56,6 +56,7 @@ export async function onRequest(context) {
   if (request.method === "GET") {
     return json({
       ok: true,
+      connected: true,
       service:
         "MerrickasCoin AI Promoter Connector",
       status: "online"
@@ -111,7 +112,7 @@ export async function onRequest(context) {
       payload = {};
     }
 
-    const event = safeText(
+    const event = cleanText(
       payload.event ||
         payload.type ||
         payload.action ||
@@ -119,15 +120,34 @@ export async function onRequest(context) {
       100
     ).toLowerCase();
 
+    const title = cleanText(
+      payload.title ||
+        payload.name ||
+        payload.subject,
+      500
+    );
+
+    const content = cleanText(
+      payload.content ||
+        payload.body ||
+        payload.article ||
+        payload.description,
+      200000
+    );
+
     /*
      * Accept every normal connection-test format.
+     * Also accept any authorized request with no title
+     * and no content as a secure connection test.
      */
-    if (
+    const isConnectionTest =
       event === "connection_test" ||
       event === "test_connection" ||
       event === "connection-test" ||
-      event === "ping"
-    ) {
+      event === "ping" ||
+      (!title && !content);
+
+    if (isConnectionTest) {
       return json({
         ok: true,
         connected: true,
@@ -140,44 +160,13 @@ export async function onRequest(context) {
       });
     }
 
-    const title = safeText(
-      payload.title ||
-        payload.name ||
-        payload.subject,
-      500
-    );
-
-    const content = safeText(
-      payload.content ||
-        payload.body ||
-        payload.article ||
-        payload.description,
-      200000
-    );
-
-    if (!title && !content) {
-      return json(
-        {
-          ok: false,
-          error:
-            "The request must include a title or content.",
-          receivedEvent: event || null
-        },
-        400
-      );
-    }
-
-    /*
-     * The connector currently receives approved content
-     * safely. It does not automatically alter index.html.
-     * Publishing logic can be added separately after testing.
-     */
     return json({
       ok: true,
-      accepted: true,
       connected: true,
+      accepted: true,
       receivedAt: new Date().toISOString(),
       title: title || "Untitled draft",
+      contentReceived: Boolean(content),
       message:
         "Approved AI Promoter content was securely received."
     });
