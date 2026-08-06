@@ -93,8 +93,15 @@ export async function onRequestPost(context) {
       typeof payload?.content === "string"
         ? payload.content.trim()
         : "";
-
-    if (!title && !content) {
+    if (payload?.event === "connection_test") {
+  return json({
+    ok: true,
+    connected: true,
+    accepted: true,
+    service: "MerrickasCoin AI Promoter Connector",
+    message: "Secure webhook connection verified."
+  });
+}
       return json(
         {
           ok: false,
